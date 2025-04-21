@@ -2,113 +2,154 @@ from time import time
 
 class Sudoku:
     def __init__(
-        self, 
-        board, 
-        options_board=None, 
-        n_filled=None
+        self,
+        board,
+        options_board=None,
+        queue=None
     ):
         self.board = board
         self.ROWS = len(board)
         self.COLS = len(board[0])
 
         self.options_board = options_board or self.init_options_board()
-        self.n_filled = n_filled or self.compute_n_filled()
-    
-    def compute_n_filled(self):
-        ''' Computes the number of filled boxes in the board '''
-        return sum(
-            sum(1 for x in row if x != '.')
-            for row in self.board
-        )
-
-    def get_neighbor_idxs(self, row: int, col: int):
-        '''
-        Returns the idxs of the neighbor boxes
-        These are the boxes that share a row, column 
-        or cuadrant with the box at (row, col)
-        '''
-        r0 = row//3 * 3
-        c0 = col//3 * 3
-
-        # Col idxs
-        for r in range(self.ROWS): 
-            yield (r, col)
-        
-        # Row idxs
-        for c in range(self.COLS):
-            yield (row, c)
-        
-        # Cuadrant idxs
-        for r in range(r0, r0 + 3):
-            for c in range(c0, c0 + 3):
-                yield (r, c)
-        
-
-    def get_options(self, row: int, col: int):
-        '''
-        Returns the possible numbers for the box at (row, col)
-        '''
-        # Get all numbers in row, column and cuadrant
-        played = set(
-            self.board[r][c] 
-            for r, c in self.get_neighbor_idxs(row, col)
-        )
-
-        # All numbers 1-9 that are not played (available)
-        return [
-            str(x) for x in range(1, 10) 
-            if str(x) not in played
-        ]
+        self.queue = queue or self.init_queue()
+        self.solvable = True
     
     def init_options_board(self):
         '''
-        Computes all the possible numbers for each box
+        Computes all the possible numbers for each box in the board.
+        The options of each box are a one-hot encoded vector of size 9.
         '''
-        return [
-            [
-                (
-                    self.get_options(row, col)
-                    if not self.is_box_filled(row, col)
-                    else []
-                )
-                for col in range(self.COLS)
-            ]
-            for row in range(self.ROWS)
-        ]
-    
-    def is_box_filled(self, row: int, col: int):
-        return self.board[row][col] != '.'
-    
-    def is_solved(self):
-        return self.n_filled == self.ROWS * self.COLS
-    
-    def fill_box(self, row: int, col: int, choice: str):
-        '''
-        Fills the box at (row, col) with the choice, updates 
-        the options board and the number of filled boxes
-        '''
-        self.n_filled += 1
-        self.board[row][col] = choice
+        # Initialize the options board with all options enabled
+        options_board = [[[1]*9 for _ in range(9)] for _ in range(9)]
 
-        for r, c in self.get_neighbor_idxs(row, col):
-            if choice in self.options_board[r][c]:
-                self.options_board[r][c].remove(choice)
+        for row in range(9):
+            for col in range(9):
+                if self.board[row][col] == '.':
+                    continue
+
+                # Disable all options for the box
+                options_board[row][col] = [0] * 9
+
+                # Disable the choice from the row and column
+                choice = int(self.board[row][col]) - 1
+                for n in range(9):
+                    options_board[row][n][choice] = 0
+                    options_board[n][col][choice] = 0
+
+                r0 = row//3 * 3
+                c0 = col//3 * 3
+
+                # Disable the choice from the box's quadrant
+                for r in range(r0, r0 + 3):
+                    for c in range(c0, c0 + 3):
+                        options_board[r][c][choice] = 0
+
+        return options_board
+    
+    def init_queue(self):
+        '''
+        Initializes the queue with the boxes that have the least number of choices.
+        The queue contains the pairs (row, col) at the index of the number of choices.
+        '''
+        queue = [set() for i in range(10)]
+
+        for row in range(9):
+            for col in range(9):
+                n_choices = sum(self.options_board[row][col])
+
+                # Add idx to the position in the queue with the number of choices
+                queue[n_choices].add((row, col))
+
+        return queue
+    
+    def get_next(self):
+        ''' 
+        Returns the next best box to fill (least number of choices)
+        Returns 0, (-1, -1) if there are no more boxes to fill
+        '''
+        for i in range(1, 10):
+            if self.queue[i]:
+                return i, self.queue[i].pop()
+        return 0, (-1, -1)
+    
+    def get_choice(self, row, col):
+        ''' 
+        Generator that yields the possible choices for the box at (row, col)
+        It should not be called if the box is already filled
+        '''
+        for choice in range(9):
+            if self.options_board[row][col][choice]:
+                yield choice
+    
+    def update_state(self, row, col, choice):
+        '''
+        Updates the queue and options board after a choice is made
+        '''
+        if self.options_board[row][col][choice]:
+            n_choices = sum(self.options_board[row][col])
+
+            # If you remove the last choice of an empty box,
+            # its impossible to fill, so the board is unsolvable
+            if n_choices == 1 and self.board[row][col] == '.':
+                self.solvable = False
+
+            # Since an option was removed, the number of 
+            # choices for the box decreases by one
+            self.queue[n_choices].discard((row, col))
+            self.queue[n_choices - 1].add((row, col))
+
+            # Disables the choice from the options board
+            self.options_board[row][col][choice] = 0
+
+    def fill_box(self, row, col, choice: int):
+        '''
+        Fills the box at (row, col) with the choice, updates
+        the queue and options board
+        '''
+        # Fills the box
+        self.board[row][col] = str(choice + 1)
+
+        # Move the box idx to the queue's filled box index
+        n_choices = sum(self.options_board[row][col])
+        self.queue[n_choices].discard((row, col))
+        self.queue[0].add((row, col))
+
+        # Since box is filled, all its options are disabled
+        self.options_board[row][col] = [0] * 9
+
+        # Updates the options board of the row and column
+        for n in range(9):
+            self.update_state(row, n, choice)
+            self.update_state(n, col, choice)
+
+        r0 = row//3 * 3
+        c0 = col//3 * 3
+
+        # Updates the options board of the box's quadrant
+        for r in range(r0, r0 + 3):
+            for c in range(c0, c0 + 3):
+                if r == row and c == col:
+                    continue
+
+                self.update_state(r, c, choice)
     
     def copy(self):
         '''
         Returns a deepcopy of the Sudoku object
         This is used for the backtracking algorithm
         '''
+        new_queue = [set(q) for q in self.queue]
         new_board = [row[:] for row in self.board]
         new_options_board = [
-            [options[:] for options in row] 
+            [options[:] for options in row]
             for row in self.options_board
         ]
 
-        return Sudoku(
+        return self.__class__(
             board=new_board,
             options_board=new_options_board,
-            n_filled=self.n_filled
+            queue=new_queue
         )
 
     def __repr__(self):
@@ -132,34 +173,8 @@ class Sudoku:
 
     def solve(self, print_time=True) -> bool:
         '''
-        Attempts to solve the Sudoku board using a combination of logical deduction 
-        and recursive backtracking.
-
-        The function operates in two main phases:
-        1. **Logical Deduction**:
-            - Iterates over every cell in the board.
-            - Fills a cell with a single option, and updates the options that the 
-            cells in the same row, column and cuadrant share.
-        
-        This continues until there are no more cells with a single option.
-        * If an empty cell has no options, the board is unsolvable and the function
-        returns False.
-        * If there are no cells with a single option, the board is ambiguous and the
-        function switches to backtracking.
-
-        2. **Recursive Backtracking**:
-            - It finds the first ambiguous (empty with multiple options) cell.
-            - For each possible option in that cell, it:
-                - Creates a deep copy of the current game state.
-                - Fills the ambiguous cell with the option.
-                - Recursively calls the function with the new game state, 
-                and returns to phase 1.
-            
-        This continues until all the options are exhausted.
-        * If no choices lead to a solution, the board is unsolvable and the function
-        returns False.
-        * If a valid solution is found, it updates the current board with
-        the solved state from the copy and returns True.
+        Solves the Sudoku board by filling the boxes with the least number of choices,
+        recursively backtracking if the next best box has multiple options.
 
         Returns:
         -------
@@ -167,60 +182,34 @@ class Sudoku:
         '''
 
         start = time()
-        is_ambiguous = False
 
         while True:
-            filled_box = False
+            n_choices, (row, col) = self.get_next()
 
-            for row in range(self.ROWS):
-                for col in range(self.COLS):
-                    # Skip filled boxes
-                    if self.is_box_filled(row, col):
-                        continue
-                    
-                    options = self.options_board[row][col]
+            if (row, col) == (-1, -1):
+                if print_time:
+                    print(f'Solve took: {time() - start:.6f} seconds \n')
+                return True
 
-                    # If there are no options for an empty box, 
-                    # the board is unsolvable
-                    if not options:
-                        return False
+            # If there is only one choice, fill the box
+            if n_choices == 1:
+                choice = next(self.get_choice(row, col))
+                self.fill_box(row, col, choice)
 
-                    # If there is only one option, fill the box
-                    elif len(options) == 1:
-                        self.fill_box(row, col, options.pop())
-                        filled_box = True
-
-                        # This is the only case where the board is solved
-                        # so we must check if the board is over
-                        if self.is_solved():
-                            if print_time:
-                                print(f'Solve took: {time() - start:.6f} seconds \n')
-                            return True
-
-                        # If the board is not over, continue to the next box
-                        continue
-                    
-                    # If obvious choices remain, there is no need
-                    # to recursively explore the options
-                    if not is_ambiguous:
-                        continue
-                    
-                    # Explore the options
-                    for choice in options:
-                        n_game = self.copy()
-                        n_game.fill_box(row, col, choice)
-
-                        # If the solution is found, update the current board
-                        # and return True
-                        if n_game.solve(print_time):
-                            self.board = n_game.board
-                            self.options_board = n_game.options_board
-                            self.n_filled = n_game.n_filled
-                            return True
-
-                    # If no solution is found, the board is unsolvable
+                if not self.solvable:
                     return False
-                
-            # If there are no obvious choices, the board is ambiguous
-            if not filled_box:
-                is_ambiguous = True
+
+            # If there are multiple choices, try each one
+            else:
+                for choice in self.get_choice(row, col):
+                    n_game = self.copy()
+                    n_game.fill_box(row, col, choice)
+
+                    # If choice leads to a solution, update the current board
+                    if n_game.solve():
+                        self.board = n_game.board
+                        self.options_board = n_game.options_board
+                        self.queue = n_game.queue
+                        return True
+
+                return False

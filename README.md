@@ -2,14 +2,14 @@
 
 ## Overview
 
-The Sudoku Solver is a Python application designed to solve Sudoku puzzles using a combination of logical deduction and recursive backtracking. The application allows users to input a Sudoku board and receive a solved version of the board, if a solution exists.
+The Sudoku Solver is a Python application designed to solve Sudoku puzzles by exploring the boxes with the least number of options first, and recursively backtracking if the next best box has multiple options. The application allows users to input a Sudoku board and receive a solved version of the board, if a solution exists.
 
 ## Features
 
 - **Sudoku Board Representation**: The board is represented as a 2D list, where empty cells are denoted by a dot (`.`).
-- **Logical Deduction**: The solver first attempts to fill in cells using logical deduction, identifying cells with only one possible value.
-- **Recursive Backtracking**: If the logical deduction does not lead to a solution, the solver employs a backtracking algorithm to explore possible values for ambiguous cells.
-- **Performance Measurement**: The time taken to solve the puzzle can be displayed.
+- **Queue-based Exploration**: The Sudoku Solver uses a queue to prioritize boxes with the fewest options. This approach helps quickly narrow down potential solutions by addressing the most constrained boxes first, improving efficiency.
+- **Recursive Backtracking**: When a box has multiple options, the solver employs recursive backtracking. If a chosen option leads to a dead end, it backtracks to try the next option. This method ensures all possibilities are explored until a solution is found or all options are exhausted.
+- **Performance Measurement**: It measures the time taken to solve the puzzle.
 
 ## Installation
 
